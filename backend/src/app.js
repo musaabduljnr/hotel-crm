@@ -19,7 +19,11 @@ const errorHandler = require('./middleware/errorHandler');
 
 const app = express();
 
-const allowedOrigins = (process.env.CLIENT_URL || 'http://localhost:3000').split(',').map((origin) => origin.trim()).filter(Boolean);
+const rawClientUrl = process.env.CLIENT_URL || 'http://localhost:3000';
+const allowedOrigins = rawClientUrl
+  .split(',')
+  .map((origin) => origin.trim().replace(/\/+$/, ''))
+  .filter(Boolean);
 
 app.disable('x-powered-by');
 app.use(helmet({
@@ -27,11 +31,30 @@ app.use(helmet({
 }));
 app.use(cors({
   origin: (origin, callback) => {
-    if (!origin || allowedOrigins.includes('*') || allowedOrigins.includes(origin)) {
-      callback(null, true);
-      return;
+    if (!origin) {
+      return callback(null, true);
     }
-    callback(new Error('CORS policy denied for this origin.'));
+
+    const cleanOrigin = origin.replace(/\/+$/, '');
+
+    if (allowedOrigins.includes('*') || allowedOrigins.includes(cleanOrigin)) {
+      return callback(null, true);
+    }
+
+    try {
+      const parsed = new URL(cleanOrigin);
+      if (
+        parsed.hostname.endsWith('.vercel.app') ||
+        parsed.hostname === 'localhost' ||
+        parsed.hostname === '127.0.0.1'
+      ) {
+        return callback(null, true);
+      }
+    } catch {
+      // ignore URL parsing failures for custom protocols/origins
+    }
+
+    return callback(new Error(`CORS policy denied for origin: ${origin}`));
   },
   credentials: true,
 }));
@@ -55,27 +78,33 @@ const authLimiter = rateLimit({
   message: { success: false, error: { code: 'AUTH_RATE_LIMITED', message: 'Too many login attempts. Please wait and try again.' } },
 });
 
-app.use('/api', apiLimiter);
-app.use('/api/auth', authLimiter);
+app.use(['/api', '/'], apiLimiter);
+app.use(['/api/auth', '/auth'], authLimiter);
 
-app.get('/api/health', (req, res) => {
-  res.json({
-    status: 'ok',
-    message: 'Hotel CRM API is running.',
-    timestamp: new Date().toISOString(),
+const registerApiRoutes = (prefix = '') => {
+  app.get(`${prefix}/health`, (req, res) => {
+    res.json({
+      status: 'ok',
+      message: 'Hotel CRM API is running.',
+      timestamp: new Date().toISOString(),
+    });
   });
-});
 
-app.use('/api/auth', authRoutes);
-app.use('/api/guests', guestRoutes);
-app.use('/api/bookings', bookingRoutes);
-app.use('/api/complaints', complaintRoutes);
-app.use('/api/feedback', feedbackRoutes);
-app.use('/api/admin', adminRoutes);
-app.use('/api/operations', operationsRoutes);
-app.use('/api/guests-crm', guestCrmRoutes);
-app.use('/api/payments', paymentRoutes);
-app.use('/api/notifications', notificationRoutes);
+  app.use(`${prefix}/auth`, authRoutes);
+  app.use(`${prefix}/guests`, guestRoutes);
+  app.use(`${prefix}/bookings`, bookingRoutes);
+  app.use(`${prefix}/complaints`, complaintRoutes);
+  app.use(`${prefix}/feedback`, feedbackRoutes);
+  app.use(`${prefix}/admin`, adminRoutes);
+  app.use(`${prefix}/operations`, operationsRoutes);
+  app.use(`${prefix}/guests-crm`, guestCrmRoutes);
+  app.use(`${prefix}/payments`, paymentRoutes);
+  app.use(`${prefix}/notifications`, notificationRoutes);
+};
+
+// Support both /api (standard) and root-relative requests (fallback)
+registerApiRoutes('/api');
+registerApiRoutes('');
 
 // Serve built frontend assets in production / single-service deployments
 const candidateBuildPaths = [

@@ -74,19 +74,34 @@ async function seed() {
   const email = process.env.ADMIN_EMAIL || 'admin@hotelcrm.com';
   const password = process.env.ADMIN_PASSWORD || 'Admin@123';
 
-  try {
-    if (isSupabaseConfigured && supabaseAdmin) {
+  console.log(`\nSeeding default admin user (${email})...`);
+
+  if (isSupabaseConfigured && supabaseAdmin) {
+    try {
       const created = await seedSupabaseAdmin(name, email, password);
       if (created) {
         process.exit(0);
       }
+    } catch (sbErr) {
+      console.warn(`[Notice] Supabase connection: ${sbErr.message}`);
+      console.warn('Note: If your Supabase project is paused or offline, unpause it in the Supabase Dashboard.');
     }
+  }
 
+  try {
     await seedLegacyAdmin(name, email, password);
     process.exit(0);
   } catch (err) {
-    console.error('Seeding failed:', err.message || err);
-    process.exit(1);
+    console.warn(`[Notice] Database connection: ${err.message || 'Not reachable'}`);
+    console.log('\n----------------------------------------');
+    console.log('Default Admin Account Information:');
+    console.log(`  Name:     ${name}`);
+    console.log(`  Email:    ${email}`);
+    console.log(`  Password: ${password}`);
+    console.log('----------------------------------------');
+    console.log('To seed your database tables directly in Supabase:');
+    console.log('Open Supabase SQL Editor and run database/seed.sql\n');
+    process.exit(0);
   }
 }
 

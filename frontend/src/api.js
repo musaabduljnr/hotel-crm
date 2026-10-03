@@ -1,4 +1,20 @@
-const BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000/api';
+function resolveBaseUrl() {
+  const envUrl = (process.env.REACT_APP_API_URL || '').trim();
+  if (envUrl) {
+    const cleanUrl = envUrl.replace(/\/+$/, '');
+    return cleanUrl.endsWith('/api') ? cleanUrl : `${cleanUrl}/api`;
+  }
+
+  if (typeof window !== 'undefined' && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
+    console.warn(
+      'REACT_APP_API_URL is not set in this environment. Falling back to http://localhost:5000/api which will cause "Failed to fetch" on live sites.'
+    );
+  }
+
+  return 'http://localhost:5000/api';
+}
+
+const BASE_URL = resolveBaseUrl();
 
 function unwrapSuccessPayload(data) {
   if (!data || data.success === false) {
@@ -26,11 +42,21 @@ async function request(path, { method = 'GET', body, token } = {}) {
   const headers = { 'Content-Type': 'application/json' };
   if (token) headers.Authorization = `Bearer ${token}`;
 
-  const res = await fetch(`${BASE_URL}${path}`, {
-    method,
-    headers,
-    body: body ? JSON.stringify(body) : undefined
-  });
+  let res;
+  try {
+    res = await fetch(`${BASE_URL}${path}`, {
+      method,
+      headers,
+      body: body ? JSON.stringify(body) : undefined
+    });
+  } catch (netErr) {
+    if (netErr?.name === 'TypeError' || netErr?.message === 'Failed to fetch') {
+      throw new Error(
+        `Unable to reach backend API at ${BASE_URL}. If your backend is on Render free tier, it may be waking up (please wait 30s and retry). Otherwise check that REACT_APP_API_URL on Vercel and CORS settings on Render are configured.`
+      );
+    }
+    throw netErr;
+  }
 
   let data = null;
   try {
