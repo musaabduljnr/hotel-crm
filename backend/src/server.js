@@ -10,15 +10,17 @@ const server = http.createServer(app);
 async function startServer() {
   try {
     await testConnection();
-    server.listen(PORT, () => {
-      console.log(`Hotel CRM API running on http://localhost:${PORT}`);
-    });
+    console.log('Database connection check passed.');
   } catch (error) {
-    console.error('Database startup check failed.');
-    console.error(error.message);
-    process.exit(1);
+    console.warn('Database startup check warning:', error.message);
+    console.warn('The API server will continue running so health checks and web service remain live, but database queries require DATABASE_URL configured.');
   }
+
+  server.listen(PORT, () => {
+    console.log(`Hotel CRM API running on http://localhost:${PORT}`);
+  });
 }
+
 
 startServer();
 
