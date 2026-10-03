@@ -1,18 +1,34 @@
 const mysql = require('mysql2/promise');
 const { env } = require('./env');
 
-const pool = mysql.createPool({
-  host: env.DB_HOST || 'localhost',
-  port: Number(env.DB_PORT) || 3306,
-  user: env.DB_USER || 'root',
-  password: env.DB_PASSWORD || '',
-  database: env.DB_NAME || 'hotel_crm',
-  waitForConnections: true,
-  connectionLimit: Number(env.DB_POOL_LIMIT) || 10,
-  queueLimit: 0,
-  charset: 'utf8mb4',
-  multipleStatements: false,
-});
+const databaseUri = env.DATABASE_URL || env.MYSQL_URL;
+const sslConfig = env.DB_SSL === 'true' || env.DB_SSL === '1' ? { rejectUnauthorized: false } : undefined;
+
+const poolConfig = databaseUri
+  ? {
+      uri: databaseUri,
+      waitForConnections: true,
+      connectionLimit: Number(env.DB_POOL_LIMIT) || 10,
+      queueLimit: 0,
+      charset: 'utf8mb4',
+      ...(sslConfig ? { ssl: sslConfig } : {}),
+    }
+  : {
+      host: env.DB_HOST || 'localhost',
+      port: Number(env.DB_PORT) || 3306,
+      user: env.DB_USER || 'root',
+      password: env.DB_PASSWORD || '',
+      database: env.DB_NAME || 'hotel_crm',
+      waitForConnections: true,
+      connectionLimit: Number(env.DB_POOL_LIMIT) || 10,
+      queueLimit: 0,
+      charset: 'utf8mb4',
+      multipleStatements: false,
+      ...(sslConfig ? { ssl: sslConfig } : {}),
+    };
+
+const pool = mysql.createPool(poolConfig);
+
 
 async function testConnection() {
   let connection;

@@ -153,7 +153,17 @@ node --test test/*.test.js
 
 This verifies the current production-hardening pass and ensures the key workflow rules remain stable.
 
+## Deployment
+
+Haven CRM is configured for seamless deployment:
+- **Render**: Unified full-stack deployment using [`render.yaml`](render.yaml) or root `npm run build` & `npm start`.
+- **Vercel + Backend**: Frontend SPA on Vercel (using [`frontend/vercel.json`](frontend/vercel.json)) with API on Render/Railway.
+- **Docker**: Full-stack containerization via [`Dockerfile`](Dockerfile) and [`docker-compose.yml`](docker-compose.yml).
+
+Detailed instructions are available in [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
+
 ## Recommended next steps
+
 
 - connect the frontend to the hardened API routes
 - add end-to-end testing for the guest → booking → check-in flow

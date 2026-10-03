@@ -1,3 +1,5 @@
+const path = require('path');
+const fs = require('fs');
 const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
@@ -25,7 +27,7 @@ app.use(helmet({
 }));
 app.use(cors({
   origin: (origin, callback) => {
-    if (!origin || allowedOrigins.includes(origin)) {
+    if (!origin || allowedOrigins.includes('*') || allowedOrigins.includes(origin)) {
       callback(null, true);
       return;
     }
@@ -33,6 +35,7 @@ app.use(cors({
   },
   credentials: true,
 }));
+
 app.use(express.json({ limit: '1mb' }));
 app.use(express.urlencoded({ extended: true }));
 
@@ -74,7 +77,26 @@ app.use('/api/guests-crm', guestCrmRoutes);
 app.use('/api/payments', paymentRoutes);
 app.use('/api/notifications', notificationRoutes);
 
+// Serve built frontend assets in production / single-service deployments
+const candidateBuildPaths = [
+  path.resolve(__dirname, '../../frontend/build'),
+  path.resolve(process.cwd(), 'frontend/build'),
+  path.resolve(process.cwd(), '../frontend/build'),
+];
+const resolvedBuildPath = candidateBuildPaths.find((dir) => fs.existsSync(dir));
+
+if (resolvedBuildPath) {
+  app.use(express.static(resolvedBuildPath));
+  app.get('*', (req, res, next) => {
+    if (req.path.startsWith('/api')) {
+      return next();
+    }
+    res.sendFile(path.join(resolvedBuildPath, 'index.html'));
+  });
+}
+
 app.use(notFoundHandler);
 app.use(errorHandler);
 
 module.exports = app;
+

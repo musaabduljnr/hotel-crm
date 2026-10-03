@@ -10,7 +10,8 @@ const useSupabaseAuth = explicitSupabaseFlag === undefined
   : ['true', '1', 'yes', 'on'].includes(String(explicitSupabaseFlag).trim().toLowerCase());
 
 const missing = requiredEnv.filter((key) => !process.env[key] || process.env[key].includes('replace_this_with_a_long_random_secret_key'));
-const legacyDbMissing = legacyDbRequired.filter((key) => !process.env[key]);
+const hasDatabaseUrl = Boolean(process.env.DATABASE_URL || process.env.MYSQL_URL);
+const legacyDbMissing = hasDatabaseUrl ? [] : legacyDbRequired.filter((key) => !process.env[key]);
 
 if (missing.length > 0) {
   console.warn(`Missing or placeholder environment values for: ${missing.join(', ')}. Set them before production deployment.`);

@@ -1,13 +1,23 @@
 const { createClient } = require('@supabase/supabase-js');
 const { env } = require('./env');
 
-const supabaseUrl = env.SUPABASE_URL;
-const supabaseAnonKey = env.SUPABASE_ANON_KEY;
-const supabaseServiceKey = env.SUPABASE_SERVICE_ROLE_KEY;
-const supabaseExplicitlyEnabled = ['true', '1', 'yes', 'on'].includes(String(env.USE_SUPABASE_AUTH || '').trim().toLowerCase());
-const hasSupabaseCredentials = Boolean(supabaseUrl && supabaseAnonKey);
+function resolveSupabaseConfig(configEnv = env) {
+  const url = configEnv.SUPABASE_URL;
+  const anonKey = configEnv.SUPABASE_ANON_KEY;
+  const serviceKey = configEnv.SUPABASE_SERVICE_ROLE_KEY;
+  const explicitlyEnabled = ['true', '1', 'yes', 'on'].includes(String(configEnv.USE_SUPABASE_AUTH || '').trim().toLowerCase());
+  const hasCredentials = Boolean(url && anonKey);
+  const isConfigured = explicitlyEnabled && hasCredentials;
 
-const isSupabaseConfigured = supabaseExplicitlyEnabled && hasSupabaseCredentials;
+  return {
+    isConfigured,
+    supabaseUrl: url,
+    supabaseAnonKey: anonKey,
+    supabaseServiceKey: serviceKey,
+  };
+}
+
+const { isConfigured: isSupabaseConfigured, supabaseUrl, supabaseAnonKey, supabaseServiceKey } = resolveSupabaseConfig(env);
 
 const supabase = isSupabaseConfigured
   ? createClient(supabaseUrl, supabaseAnonKey, {
@@ -31,4 +41,6 @@ module.exports = {
   supabase,
   supabaseAdmin,
   isSupabaseConfigured,
+  resolveSupabaseConfig,
 };
+
