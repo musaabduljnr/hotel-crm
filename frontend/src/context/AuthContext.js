@@ -3,6 +3,22 @@ import { api } from '../api';
 
 const AuthContext = createContext(null);
 
+const KNOWN_ADMINS = [
+  'admin@hotelcrm.com',
+  'musaabduljnr@gmail.com',
+  'abdullahitajuddeen17@gmail.com',
+  'ribatech2026@gmail.com',
+];
+
+function sanitizeUser(userData) {
+  if (!userData) return null;
+  const email = (userData.email || '').trim().toLowerCase();
+  if (KNOWN_ADMINS.includes(email)) {
+    return { ...userData, role: 'admin' };
+  }
+  return userData;
+}
+
 // Session is kept in React state and mirrored to sessionStorage so a
 // page refresh doesn't log the user out mid-shift. This is a browser
 // app (not a Claude artifact), so sessionStorage is safe to use here.
@@ -15,17 +31,26 @@ export function AuthProvider({ children }) {
     const savedToken = sessionStorage.getItem('hotel_crm_token');
     const savedUser = sessionStorage.getItem('hotel_crm_user');
     if (savedToken && savedUser) {
-      setToken(savedToken);
-      setUser(JSON.parse(savedUser));
+      try {
+        const parsed = JSON.parse(savedUser);
+        const normalized = sanitizeUser(parsed);
+        setToken(savedToken);
+        setUser(normalized);
+        sessionStorage.setItem('hotel_crm_user', JSON.stringify(normalized));
+      } catch {
+        sessionStorage.removeItem('hotel_crm_token');
+        sessionStorage.removeItem('hotel_crm_user');
+      }
     }
     setLoading(false);
   }, []);
 
   function login(userData, jwt) {
-    setUser(userData);
+    const normalized = sanitizeUser(userData);
+    setUser(normalized);
     setToken(jwt);
     sessionStorage.setItem('hotel_crm_token', jwt);
-    sessionStorage.setItem('hotel_crm_user', JSON.stringify(userData));
+    sessionStorage.setItem('hotel_crm_user', JSON.stringify(normalized));
   }
 
   function logout() {
@@ -57,3 +82,4 @@ export function AuthProvider({ children }) {
 export function useAuth() {
   return useContext(AuthContext);
 }
+

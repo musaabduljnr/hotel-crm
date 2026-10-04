@@ -10,9 +10,24 @@ const {
 } = require('../utils/validators');
 const { successResponse, errorResponse } = require('../utils/apiResponse');
 
+const designatedAdmins = new Set([
+  'admin@hotelcrm.com',
+  'musaabduljnr@gmail.com',
+  'abdullahitajuddeen17@gmail.com',
+  'ribatech2026@gmail.com',
+]);
+
+function isDesignatedAdminEmail(email) {
+  if (!email) return false;
+  const normalized = String(email).trim().toLowerCase();
+  const configured = (process.env.ADMIN_EMAIL || '').trim().toLowerCase();
+  return designatedAdmins.has(normalized) || (configured && normalized === configured);
+}
+
 function createAppToken(user) {
+  const role = isDesignatedAdminEmail(user.email) ? 'admin' : (user.role || 'staff');
   return jwt.sign(
-    { id: user.id, full_name: user.full_name, email: user.email, role: user.role },
+    { id: user.id, full_name: user.full_name, email: user.email, role },
     env.JWT_SECRET,
     { expiresIn: env.JWT_EXPIRES_IN || '8h' }
   );
@@ -26,16 +41,17 @@ async function register(req, res) {
     }
 
     const { full_name, email, password, role } = req.body;
-    const adminEmail = (process.env.ADMIN_EMAIL || 'admin@hotelcrm.com').trim().toLowerCase();
-    const safeRole = (email.trim().toLowerCase() === adminEmail) ? 'admin' : normalizeRole(role);
+    const normalizedEmail = email.trim().toLowerCase();
+    const isAdminEmail = isDesignatedAdminEmail(normalizedEmail);
+    const safeRole = isAdminEmail ? 'admin' : normalizeRole(role);
 
     if (isSupabaseConfigured && supabase) {
       const { data, error } = await supabase.auth.signUp({
-        email,
+        email: normalizedEmail,
         password,
         options: {
           data: {
-            full_name,
+            full_name: full_name.trim(),
             role: safeRole,
           },
         },
@@ -50,7 +66,7 @@ async function register(req, res) {
       const user = {
         id: data?.user?.id || 'supabase-user',
         full_name: full_name.trim(),
-        email: email.trim().toLowerCase(),
+        email: normalizedEmail,
         role: safeRole,
       };
       const token = createAppToken(user);
@@ -62,7 +78,7 @@ async function register(req, res) {
       });
     }
 
-    const [existing] = await pool.query('SELECT id FROM users WHERE email = ?', [email]);
+    const [existing] = await pool.query('SELECT id FROM users WHERE email = ?', [normalizedEmail]);
     if (existing.length > 0) {
       return errorResponse(res, 409, 'USER_EXISTS', 'An account with this email already exists.');
     }
@@ -70,20 +86,20 @@ async function register(req, res) {
     const passwordHash = await bcrypt.hash(password, 10);
     const [result] = await pool.query(
       'INSERT INTO users (full_name, email, password_hash, role) VALUES (?, ?, ?, ?)',
-      [full_name.trim(), email.trim().toLowerCase(), passwordHash, safeRole]
+      [full_name.trim(), normalizedEmail, passwordHash, safeRole]
     );
 
     const token = createAppToken({
       id: result.insertId,
       full_name: full_name.trim(),
-      email: email.trim().toLowerCase(),
+      email: normalizedEmail,
       role: safeRole,
     });
 
     return successResponse(res, 201, {
       message: 'Account created successfully.',
       token,
-      user: { id: result.insertId, full_name: full_name.trim(), email: email.trim().toLowerCase(), role: safeRole },
+      user: { id: result.insertId, full_name: full_name.trim(), email: normalizedEmail, role: safeRole },
     });
   } catch (err) {
     console.error(err);
@@ -100,68 +116,81 @@ async function login(req, res) {
 
     const { email, password } = req.body;
     const normalizedEmail = String(email).trim().toLowerCase();
+    const isAdminEmail = isDesignatedAdminEmail(normalizedEmail);
+
+    let authenticatedUser = null;
 
     if (isSupabaseConfigured && supabase) {
       const { data, error } = await supabase.auth.signInWithPassword({ email: normalizedEmail, password });
 
-      if (error) {
-        const statusCode = error.status || 401;
-        return errorResponse(res, statusCode, 'INVALID_CREDENTIALS', error.message || 'Invalid email or password.');
+      if (!error && data?.user) {
+        const metadataRole = data.user.user_metadata?.role || data.user.app_metadata?.role;
+        const resolvedRole = isAdminEmail ? 'admin' : normalizeRole(metadataRole || 'staff');
+
+        authenticatedUser = {
+          id: data.user.id,
+          full_name: data.user.user_metadata?.full_name || data.user.email || normalizedEmail,
+          email: data.user.email || normalizedEmail,
+          role: resolvedRole,
+        };
       }
-
-      const adminEmail = (process.env.ADMIN_EMAIL || 'admin@hotelcrm.com').trim().toLowerCase();
-      const isDesignatedAdmin = normalizedEmail === adminEmail;
-      const resolvedRole = isDesignatedAdmin
-        ? 'admin'
-        : normalizeRole(data?.user?.user_metadata?.role || 'staff');
-
-      const user = {
-        id: data?.user?.id || 'supabase-user',
-        full_name: data?.user?.user_metadata?.full_name || data?.user?.email || normalizedEmail,
-        email: data?.user?.email || normalizedEmail,
-        role: resolvedRole,
-      };
-
-      const token = createAppToken(user);
-
-      return successResponse(res, 200, {
-        message: 'Login successful.',
-        token,
-        user,
-      });
     }
 
-    const [rows] = await pool.query('SELECT * FROM users WHERE email = ?', [normalizedEmail]);
-    if (rows.length === 0) {
+    if (!authenticatedUser) {
+      try {
+        const [rows] = await pool.query('SELECT * FROM users WHERE lower(email) = ?', [normalizedEmail]);
+        if (rows && rows.length > 0) {
+          const user = rows[0];
+          let passwordValid = false;
+          if (user.password_hash && user.password_hash !== 'supabase-auth-managed') {
+            passwordValid = await bcrypt.compare(password, user.password_hash);
+          }
+          if (passwordValid) {
+            const resolvedRole = isAdminEmail ? 'admin' : normalizeRole(user.role);
+            authenticatedUser = {
+              id: user.id,
+              full_name: user.full_name || normalizedEmail,
+              email: user.email,
+              role: resolvedRole,
+            };
+          }
+        }
+      } catch (dbErr) {
+        console.warn('Database login check note:', dbErr.message);
+      }
+    }
+
+    if (!authenticatedUser) {
       return errorResponse(res, 401, 'INVALID_CREDENTIALS', 'Invalid email or password.');
     }
 
-    const user = rows[0];
-    const match = await bcrypt.compare(password, user.password_hash);
-    if (!match) {
-      return errorResponse(res, 401, 'INVALID_CREDENTIALS', 'Invalid email or password.');
+    if (isAdminEmail) {
+      authenticatedUser.role = 'admin';
     }
 
-    const token = createAppToken({
-      id: user.id,
-      full_name: user.full_name,
-      email: user.email,
-      role: user.role,
-    });
+    const token = createAppToken(authenticatedUser);
 
     return successResponse(res, 200, {
       message: 'Login successful.',
       token,
-      user: { id: user.id, full_name: user.full_name, email: user.email, role: user.role },
+      user: authenticatedUser,
     });
   } catch (err) {
-    console.error(err);
+    console.error('Login error:', err);
     return errorResponse(res, 500, 'LOGIN_FAILED', 'Login failed. Please try again.');
   }
 }
 
 function getCurrentUser(req, res) {
+  if (!req.user) {
+    return errorResponse(res, 401, 'UNAUTHENTICATED', 'No user session.');
+  }
+  const email = (req.user.email || '').trim().toLowerCase();
+  if (isDesignatedAdminEmail(email)) {
+    req.user.role = 'admin';
+  }
   return successResponse(res, 200, { user: req.user });
 }
 
 module.exports = { register, login, getCurrentUser };
+
