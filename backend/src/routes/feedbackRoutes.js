@@ -6,7 +6,7 @@ const { requireAuth, requireAnyRole } = require('../middleware/auth');
 router.use(requireAuth);
 
 router.get('/', requireAnyRole(['admin', 'manager', 'receptionist', 'staff']), getFeedback);
-router.get('/summary', requireAnyRole(['admin', 'manager']), getFeedbackSummary);
+router.get('/summary', requireAnyRole(['admin', 'manager', 'receptionist', 'staff']), getFeedbackSummary);
 router.post('/', requireAnyRole(['admin', 'manager', 'receptionist', 'staff']), createFeedback);
 
 module.exports = router;

@@ -26,7 +26,8 @@ async function register(req, res) {
     }
 
     const { full_name, email, password, role } = req.body;
-    const safeRole = normalizeRole(role);
+    const adminEmail = (process.env.ADMIN_EMAIL || 'admin@hotelcrm.com').trim().toLowerCase();
+    const safeRole = (email.trim().toLowerCase() === adminEmail) ? 'admin' : normalizeRole(role);
 
     if (isSupabaseConfigured && supabase) {
       const { data, error } = await supabase.auth.signUp({
@@ -46,22 +47,18 @@ async function register(req, res) {
         return errorResponse(res, statusCode, 'REGISTRATION_FAILED', message);
       }
 
-      const token = data?.session?.access_token || createAppToken({
+      const user = {
         id: data?.user?.id || 'supabase-user',
-        full_name,
-        email,
+        full_name: full_name.trim(),
+        email: email.trim().toLowerCase(),
         role: safeRole,
-      });
+      };
+      const token = createAppToken(user);
 
       return successResponse(res, 201, {
         message: 'Account created successfully.',
         token,
-        user: {
-          id: data?.user?.id || 'supabase-user',
-          full_name,
-          email,
-          role: safeRole,
-        },
+        user,
       });
     }
 
@@ -112,14 +109,20 @@ async function login(req, res) {
         return errorResponse(res, statusCode, 'INVALID_CREDENTIALS', error.message || 'Invalid email or password.');
       }
 
+      const adminEmail = (process.env.ADMIN_EMAIL || 'admin@hotelcrm.com').trim().toLowerCase();
+      const isDesignatedAdmin = normalizedEmail === adminEmail;
+      const resolvedRole = isDesignatedAdmin
+        ? 'admin'
+        : normalizeRole(data?.user?.user_metadata?.role || 'staff');
+
       const user = {
         id: data?.user?.id || 'supabase-user',
         full_name: data?.user?.user_metadata?.full_name || data?.user?.email || normalizedEmail,
         email: data?.user?.email || normalizedEmail,
-        role: data?.user?.user_metadata?.role || 'staff',
+        role: resolvedRole,
       };
 
-      const token = data?.session?.access_token || createAppToken(user);
+      const token = createAppToken(user);
 
       return successResponse(res, 200, {
         message: 'Login successful.',
